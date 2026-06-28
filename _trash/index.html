@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-Bit Web Composer</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            border-bottom: 2px solid #00ffcc;
+            padding-bottom: 10px;
+            font-size: 24px;
+        }
+        .control-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+        }
+        button {
+            background-color: #00ffcc;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        button:hover {
+            background-color: #00cca3;
+        }
+        .bpm-input {
+            background-color: #1a1a1a;
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 8px;
+            width: 60px;
+            font-size: 16px;
+            text-align: center;
+        }
+        label {
+            font-size: 14px;
+        }
+        textarea {
+            width: 100%;
+            height: 250px;
+            background-color: #111;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 15px;
+            font-size: 16px;
+            line-height: 1.6;
+            font-family: 'Courier New', Courier, monospace;
+            box-sizing: border-box;
+            border-radius: 5px;
+            resize: vertical;
+        }
+        textarea:focus {
+            border-color: #00ffcc;
+            outline: none;
+        }
+        .instructions {
+            margin-top: 20px;
+            background-color: #222;
+            padding: 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #888;
+            line-height: 1.5;
+        }
+        .instructions strong {
+            color: #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>8-Bit Web Composer (Phase 2)</h1>
+
+    <div class="control-panel">
+        <div>
+            <button id="playBtn">PLAY / LOOP</button>
+            <button id="stopBtn" style="background-color: #ff5555; margin-left: 10px;">STOP</button>
+        </div>
+        <div>
+            <label for="bpm">BPM: </label>
+            <input type="number" id="bpm" class="bpm-input" value="120" min="40" max="300">
+        </div>
+    </div>
+
+    <textarea id="mmlInput" spellcheck="false">
+T1: E5/8 D5/8 C5/4 G4/4 C5/4 E5/8 D5/8 C5/4 G4/4 E5/4
+T2: R/4 G4/4 E4/4 G4/4 R/4 G4/4 E4/4 C4/4
+T3: C3/4 G3/4 C3/4 G3/4 C3/4 G3/4 C3/4 G3/4
+T4: H/8 H/8 S/4 H/8 H/8 S/4 H/8 H/8 S/4 H/8 H/8 S/4</textarea>
+
+    <div class="instructions">
+        <h3>【簡易MMLフォーマット・ルール】</h3>
+        * 1行に1トラックずつ記述します（T1: メロディ, T2: 伴奏, T3: ベース, T4: ドラム）<br>
+        * 各ノートは<strong>スペース区切り</strong>で記述します。<br>
+        * <strong>T1 & T2 (矩形波):</strong> [音名][オクターブ]/[音長] （例: <code>C5/4</code> = ドの4分音符, <code>R/4</code> = 4分休符）<br>
+        * <strong>T3 (三角波ベース):</strong> 音量変更不可のファミコン仕様ベースです。（例: <code>C3/4</code>）<br>
+        * <strong>T4 (ノイズドラム):</strong> <code>H</code>(ハイハット/タイト)、<code>S</code>(スネア/ざらつき)で打ち分けます。（例: <code>H/8</code>, <code>S/4</code>）<br>
+        * 各トラックは完全に独立して再生終了後に自動ループ（ポリリズム対応）します。
+    </div>
+
+    <script>
+        let audioCtx = null;
+        let isPlaying = false;
+        let trackTimers = [];
+        let noiseBuffer = null;
+
+        const NOTE_FREQ = {
+            'C': 16.35, 'C#': 17.32, 'D': 18.35, 'D#': 19.45, 'E': 20.60, 'F': 21.83,
+            'F#': 23.12, 'G': 24.50, 'G#': 25.96, 'A': 27.50, 'A#': 29.14, 'B': 30.87
+        };
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                createNoiseBuffer();
+            }
+        }
+
+        // ドラム用ホワイトノイズバッファの生成
+        function createNoiseBuffer() {
+            const bufferSize = audioCtx.sampleRate * 2;
+            noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+        }
+
+        function getFrequency(noteStr, octave) {
+            const baseFreq = NOTE_FREQ[noteStr.toUpperCase()];
+            if (!baseFreq) return 0;
+            return baseFreq * Math.pow(2, octave);
+        }
+
+        // MMLテキストをパースして各トラックの配列にする
+        function parseMML() {
+            const text = document.getElementById('mmlInput').value;
+            const lines = text.split('\n');
+            const tracks = { T1: [], T2: [], T3: [], T4: [] };
+
+            lines.forEach(line => {
+                const match = line.trim().match(/^(T[1-4]):(.*)$/);
+                if (!match) return;
+                const trackId = match[1];
+                const tokens = match[2].trim().split(/\s+/);
+
+                tokens.forEach(token => {
+                    if (!token) return;
+                    const parts = token.split('/');
+                    const notePart = parts[0];
+                    const durationDenom = parseInt(parts[1]) || 4;
+
+                    if (trackId === 'T4') {
+                        // ドラムトラック
+                        tracks[trackId].push({ type: notePart.toUpperCase(), denom: durationDenom });
+                    } else {
+                        // 音源トラック
+                        if (notePart.toUpperCase().startsWith('R')) {
+                            tracks[trackId].push({ freq: 0, denom: durationDenom });
+                        } else {
+                            const noteMatch = notePart.match(/^([A-G]#?)(\d)$/i);
+                            if (noteMatch) {
+                                const freq = getFrequency(noteMatch[1], parseInt(noteMatch[2]));
+                                tracks[trackId].push({ freq: freq, denom: durationDenom });
+                            }
+                        }
+                    }
+                });
+            });
+            return tracks;
+        }
+
+        // 各トラックの独立ループ再生処理
+        function playTrack(trackId, notes) {
+            if (notes.length === 0) return;
+
+            let currentIndex = 0;
+
+            function scheduleNext() {
+                if (!isPlaying) return;
+
+                const bpm = parseFloat(document.getElementById('bpm').value) || 120;
+                const beatDuration = 60 / bpm; // 4分音符の秒数
+                const note = notes[currentIndex];
+                const noteDuration = (4 / note.denom) * beatDuration;
+
+                const startTime = audioCtx.currentTime;
+                const endTime = startTime + noteDuration;
+
+                if (trackId === 'T1' || trackId === 'T2') {
+                    // 矩形波 (Square)
+                    if (note.freq > 0) {
+                        const osc = audioCtx.createOscillator();
+                        const gainNode = audioCtx.createGain();
+                        osc.type = 'square';
+                        osc.frequency.value = note.freq;
+
+                        // エモい音量減衰（エンベロープ）
+                        gainNode.gain.setValueAtTime(0.15, startTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.001, endTime - 0.01);
+
+                        osc.connect(gainNode);
+                        gainNode.connect(audioCtx.destination);
+                        osc.start(startTime);
+                        osc.stop(endTime);
+                    }
+                } else if (trackId === 'T3') {
+                    // 三角波 (Triangle) - 仕様上、音量制御を意図的に排除
+                    if (note.freq > 0) {
+                        const osc = audioCtx.createOscillator();
+                        const gainNode = audioCtx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.value = note.freq;
+
+                        gainNode.gain.setValueAtTime(0.2, startTime); // 固定音量
+
+                        osc.connect(gainNode);
+                        gainNode.connect(audioCtx.destination);
+                        osc.start(startTime);
+                        osc.stop(endTime);
+                    }
+                } else if (trackId === 'T4') {
+                    // ノイズドラム (Noise Channel)
+                    if (note.type === 'H' || note.type === 'S') {
+                        const noiseNode = audioCtx.createBufferSource();
+                        noiseNode.buffer = noiseBuffer;
+
+                        const filter = audioCtx.createBiquadFilter();
+                        const gainNode = audioCtx.createGain();
+
+                        if (note.type === 'H') {
+                            // ハイハット: 高域強調・超短め
+                            filter.type = 'highpass';
+                            filter.frequency.value = 7000;
+                            gainNode.gain.setValueAtTime(0.15, startTime);
+                            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.03);
+                        } else if (note.type === 'S') {
+                            // スネア: ざらつきのある中低域・少し残響
+                            filter.type = 'bandpass';
+                            filter.frequency.value = 1200;
+                            gainNode.gain.setValueAtTime(0.25, startTime);
+                            gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.15);
+                        }
+
+                        noiseNode.connect(filter);
+                        filter.connect(gainNode);
+                        gainNode.connect(audioCtx.destination);
+                        noiseNode.start(startTime);
+                        noiseNode.stop(endTime);
+                    }
+                }
+
+                // 次の音符へシフト
+                currentIndex = (currentIndex + 1) % notes.length; // 終端に達したら自動で0に戻る(独立ループ)
+
+                // 次のトリガーをタイマー予約
+                const timerId = setTimeout(scheduleNext, noteDuration * 1000);
+                trackTimers.push(timerId);
+            }
+
+            scheduleNext();
+        }
+
+        document.getElementById('playBtn').addEventListener('click', () => {
+            initAudio();
+            if (isPlaying) return; // 既に再生中なら何もしない
+            audioCtx.resume();
+            isPlaying = true;
+
+            const tracks = parseMML();
+            trackTimers = [];
+
+            // 各トラックを同時に、かつ個別にループ駆動
+            playTrack('T1', tracks.T1);
+            playTrack('T2', tracks.T2);
+            playTrack('T3', tracks.T3);
+            playTrack('T4', tracks.T4);
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            isPlaying = false;
+            trackTimers.forEach(id => clearTimeout(id));
+            trackTimers = [];
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>8-Bit Web Composer (Phase 3 - Fixed)</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-color: #1e1e1e;
+            --accent-color: #00ffcc;
+            --text-color: #ffffff;
+            --muted-color: #888888;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* グローバルコントロール */
+        .header {
+            background-color: var(--panel-color);
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #333;
+        }
+        .header h1 {
+            font-size: 16px;
+            margin: 0;
+            color: var(--accent-color);
+        }
+        .btn {
+            background-color: var(--accent-color);
+            color: #121212;
+            border: none;
+            padding: 6px 12px;
+            font-weight: bold;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-stop { background-color: #ff5555; color: white; }
+        .bpm-input {
+            background-color: #000;
+            color: var(--accent-color);
+            border: 1px solid var(--accent-color);
+            width: 50px;
+            text-align: center;
+            font-size: 14px;
+            padding: 3px;
+        }
+
+        /* タブ切り替え */
+        .tabs {
+            display: flex;
+            background-color: #1a1a1a;
+            border-bottom: 1px solid #333;
+        }
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--muted-color);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            color: var(--accent-color);
+            border-bottom: 2px solid var(--accent-color);
+            background-color: var(--panel-color);
+        }
+
+        /* ビューコンテナ */
+        .view { display: none; padding: 15px; box-sizing: border-box; }
+        .view.active { display: block; }
+
+        /* ヘッダー・ドロワー */
+        .drawer {
+            display: none;
+            position: fixed;
+            top: 50px;
+            right: 10px;
+            background: #222;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            z-index: 100;
+            width: 250px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .drawer.open { display: block; }
+        
+        /* BPM設定UI */
+        .bpm-controls-wrapper { display: flex; align-items: center; gap: 5px; }
+        .bpm-presets { display: none; gap: 2px; }
+        .bpm-presets.open { display: flex; }
+
+        /* キー・スケール・オクターブ：アコーディオン用 */
+        .accordion-content { display: none; }
+        .accordion-content.open { display: block; }
+
+        /* ====================
+           ① マクロ・ビュー
+        ==================== */
+        .macro-track-row {
+            margin-bottom: 15px;
+            background: var(--panel-color);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+        .macro-track-row.selected {
+            border-color: var(--accent-color);
+            background: #1a2624;
+        }
+        .track-label {
+            font-size: 12px;
+            color: var(--accent-color);
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .clear-btn {
+            background: #332222;
+            color: #ff8888;
+            border: 1px solid #553333;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .clear-btn:active { background: #552222; }
+        .macro-slots {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 5px 0;
+            min-height: 45px;
+        }
+        .macro-piece {
+            background: #333;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            min-width: 50px;
+            text-align: center;
+            position: relative;
+            white-space: nowrap;
+        }
+        .macro-piece .loop-count {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: var(--accent-color);
+            color: #000;
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+        .macro-palette {
+            margin-top: 20px;
+            border-top: 1px dashed #444;
+            padding-top: 15px;
+        }
+        .macro-palette h3 { font-size: 13px; margin: 0 0 10px 0; color: var(--muted-color); }
+        .piece-pool { display: flex; gap: 10px; flex-wrap: wrap; }
+        .pool-item {
+            background: #252525;
+            border: 1px solid var(--accent-color);
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        /* ====================
+           ② ミクロ・ビュー
+        ==================== */
+        .micro-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr); /* 8列固定で改行 */
+            gap: 6px;
+            padding: 12px;
+            background: #000;
+            border-radius: 6px;
+            justify-items: center; /* 各セルをカラム内で中央寄せ */
+        }
+        .grid-cell {
+            width: 100%; /* コンテナ幅に合わせて伸縮 */
+            max-width: 45px; /* 45px以上には大きくしない */
+            height: 45px;
+            background: #222;
+            border: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+        .grid-cell.selected {
+            border-color: var(--accent-color);
+            background: #2a3a35;
+        }
+        .grid-cell .step-num { font-size: 8px; color: var(--muted-color); margin-bottom: 4px;}
+        .grid-cell .step-val { color: #fff; }
+
+        /* スタンプ・パレット */
+        .stamp-keyboard {
+            margin-top: 15px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .stamp-btn {
+            background: #2a2a2a;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .stamp-btn:active { background: #444; }
+        .stamp-btn.action { background: #334440; color: var(--accent-color); }
+
+        /* キー・スケール・オクターブ設定パネル */
+        .keyboard-controls {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .kb-control-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .kb-control-group label {
+            font-size: 11px;
+            color: var(--muted-color);
+            text-transform: uppercase;
+        }
+        .kb-select {
+            background: #252525;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            cursor: pointer;
+        }
+        .kb-select:focus {
+            border-color: var(--accent-color);
+            outline: none;
+        }
+        .btn-octave {
+            background: #252525;
+            color: var(--accent-color);
+            border: 1px solid var(--accent-color);
+            padding: 4px 10px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-octave:active {
+            background: var(--accent-color);
+            color: #121212;
+        }
+
+        /* ソースコード表示エリア */
+        .source-box {
+            margin-top: 10px;
+            width: 100%;
+            height: 80px;
+            background: #000;
+            color: #00ff55;
+            font-family: monospace;
+            font-size: 11px;
+            border: 1px solid #333;
+            padding: 8px;
+            box-sizing: border-box;
+            display: none; /* デフォルトで非表示 */
+        }
+
+        /* ====================
+           モバイル・タッチ最適化 & レスポンシブ
+        ==================== */
+        button, .btn, .stamp-btn, .grid-cell, .tab, .pool-item {
+            touch-action: manipulation; /* 300ms タップ遅延を排除 */
+            -webkit-tap-highlight-color: transparent; /* iOSのタップ青背景を無効化 */
+            transition: transform 0.05s ease, background-color 0.1s ease;
+        }
+        
+        button:active, .btn:active, .stamp-btn:active, .grid-cell:active, .pool-item:active {
+            transform: scale(0.95); /* タップ時の凹み物理フィードバック */
+        }
+
+        @media (max-width: 500px) {
+            .header {
+                padding: 8px 12px;
+            }
+            .header h1 {
+                font-size: 13px;
+            }
+            .bpm-input {
+                width: 42px;
+                font-size: 13px;
+                padding: 2px;
+            }
+            .btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+            .tab {
+                padding: 10px 5px;
+                font-size: 12px;
+            }
+            
+            /* ミクロ編集画面：ヘッダーを2段組に */
+            .micro-controls {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 12px !important;
+            }
+            .micro-controls > div {
+                justify-content: space-between;
+                width: 100%;
+            }
+
+            /* キー・スケール・オクターブ：キリの良い単位で2段に再編成 */
+            .keyboard-controls {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+                padding: 12px;
+                box-sizing: border-box;
+                width: 100%;
+            }
+            .keyboard-controls > :nth-child(1) { /* Key */
+                grid-column: 1 / 2;
+                width: 100%;
+            }
+            .keyboard-controls > :nth-child(3) { /* Octave */
+                grid-column: 2 / 3;
+                justify-self: end;
+            }
+            .keyboard-controls > :nth-child(2) { /* Scale */
+                grid-column: 1 / 3; /* 2段目いっぱいに広げる */
+                width: 100%;
+            }
+            .kb-select {
+                width: 100%;
+                box-sizing: border-box;
+                font-size: 13px;
+                padding: 8px; /* タップしやすく */
+            }
+            .btn-octave {
+                padding: 6px 12px;
+                font-size: 15px;
+            }
+            
+            /* スタンプキー：タップしやすく最適化 */
+            .stamp-btn {
+                padding: 14px 8px;
+                font-size: 13px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>8-Bit Composer P3</h1>
+        <div class="bpm-controls-wrapper">
+            <input type="number" id="bpm" class="bpm-input" value="120" onchange="updateBpm()">
+            <div id="bpmPresets" class="bpm-presets">
+                <button class="btn" style="padding:2px 5px; font-size:10px;" onclick="setBpm(60)">60</button>
+                <button class="btn" style="padding:2px 5px; font-size:10px;" onclick="setBpm(120)">120</button>
+                <button class="btn" style="padding:2px 5px; font-size:10px;" onclick="setBpm(140)">140</button>
+                <button class="btn" style="padding:2px 5px; font-size:10px;" onclick="setBpm(180)">180</button>
+            </div>
+            <button class="btn" style="padding:2px 5px; font-size:10px;" onclick="toggleBpmPresets()">BPM</button>
+        </div>
+        <div>
+            <button class="btn" id="playBtn">PLAY</button>
+            <button class="btn btn-stop" id="stopBtn">STOP</button>
+            <button class="btn" style="background:#444;" onclick="toggleDrawer()">⚙️</button>
+        </div>
+    </div>
+
+    <!-- メニュードロワー -->
+    <div id="menuDrawer" class="drawer">
+        <h3 style="font-size:14px; margin:0 0 10px 0; color:var(--accent-color);">MENU</h3>
+        <input type="text" id="saveName" placeholder="曲名を入力" style="width:100%; box-sizing:border-box; background:#333; color:#fff; border:1px solid #444; padding:5px; margin-bottom:5px;">
+        <button class="btn" style="width:100%; margin-bottom:15px;" onclick="saveComposition()">保存</button>
+        <h4 style="font-size:12px; margin:0 0 5px 0; color:var(--muted-color);">お気に入り一覧</h4>
+        <div id="favoritesList" class="piece-pool"></div>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" id="tabMacro" onclick="switchView('macro')">マクロ (全体構成)</div>
+        <div class="tab" id="tabMicro" onclick="switchView('micro')">ミクロ (ピース編集)</div>
+    </div>
+
+    <div id="viewMacro" class="view active">
+        <div class="macro-track-row selected" data-track="T1" onclick="selectTrack('T1')">
+            <div class="track-label">
+                <span>T1: メロディ (矩形波)</span>
+                <button class="clear-btn" onclick="clearTrack('T1', event)">CLEAR</button>
+            </div>
+            <div class="macro-slots"></div>
+        </div>
+        <div class="macro-track-row" data-track="T2" onclick="selectTrack('T2')">
+            <div class="track-label">
+                <span>T2: 伴奏 (矩形波)</span>
+                <button class="clear-btn" onclick="clearTrack('T2', event)">CLEAR</button>
+            </div>
+            <div class="macro-slots"></div>
+        </div>
+        <div class="macro-track-row" data-track="T3" onclick="selectTrack('T3')">
+            <div class="track-label">
+                <span>T3: ベース (三角波)</span>
+                <button class="clear-btn" onclick="clearTrack('T3', event)">CLEAR</button>
+            </div>
+            <div class="macro-slots"></div>
+        </div>
+        <div class="macro-track-row" data-track="T4" onclick="selectTrack('T4')">
+            <div class="track-label">
+                <span>T4: ドラム (ノイズ)</span>
+                <button class="clear-btn" onclick="clearTrack('T4', event)">CLEAR</button>
+            </div>
+            <div class="macro-slots"></div>
+        </div>
+
+        <div class="macro-palette">
+            <h3>作成済みピース（タップして選択中のトラックに配置）</h3>
+            <div class="piece-pool" id="piecePool"></div>
+            <div style="margin-top:10px; font-size:11px; color:var(--muted-color)">※ 配置したピースをさらにタップするとループ回数 (×1 〜 ×4) が増えます</div>
+        </div>
+        
+        <h3 style="font-size:12px; margin:20px 0 5px 0; color:var(--accent-color); cursor:pointer; text-decoration: underline;" onclick="toggleSource()">▼ ソースコード（MML）の表示/非表示</h3>
+        <textarea class="source-box" id="sourceOutput" readonly></textarea>
+
+        <div class="macro-palette">
+            <h3>保存されたお気に入り (LocalStorage)</h3>
+            <div style="margin-bottom:10px;">
+                <input type="text" id="saveName" placeholder="曲名を入力" style="background:#222; color:#fff; border:1px solid #444; padding:5px;">
+                <button class="btn" onclick="saveComposition()">保存</button>
+            </div>
+            <div id="favoritesList" class="piece-pool"></div>
+        </div>
+    </div>
+
+    <div id="viewMicro" class="view">
+        <div class="micro-controls" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center;">
+                <select id="editPieceSelect" onchange="loadPieceToEdit()" style="background:#222; color:#fff; padding:5px; border:1px solid #444; font-family: monospace;">
+                    <option value="A">フレーズ A を編集</option>
+                    <option value="B">フレーズ B を編集</option>
+                    <option value="Drum1">ドラム 1 を編集</option>
+                </select>
+                <button class="btn" style="margin-left: 8px; padding: 5px 10px; font-size: 11px;" onclick="createNewPiece()">+ 新規追加</button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-color);">
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <span style="color: var(--muted-color); font-size: 11px;">STEPS:</span>
+                    <select id="stepCountSelect" onchange="changePieceSteps()" style="background:#222; color:#00ffcc; padding:4px; border:1px solid #333; font-family: monospace;">
+                        <option value="4">4</option>
+                        <option value="6">6</option>
+                        <option value="8">8</option>
+                        <option value="12">12</option>
+                        <option value="16">16</option>
+                        <option value="24">24</option>
+                        <option value="32">32</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <span style="color: var(--muted-color); font-size: 11px;">UNIT:</span>
+                    <select id="resolutionSelect" onchange="changePieceResolution()" style="background:#222; color:#00ffcc; padding:4px; border:1px solid #333; font-family: monospace;">
+                        <option value="4">4分</option>
+                        <option value="8">8分</option>
+                        <option value="12">12分</option>
+                        <option value="16">16分</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-container" id="microGrid"></div>
+
+        <!-- キー・スケール・オクターブ設定パネル -->
+        <h3 style="font-size:12px; margin:15px 0 5px 0; color:var(--accent-color); cursor:pointer; text-decoration: underline;" onclick="toggleAccordion('keyboardControls')">▼ 設定変更モード</h3>
+        <div class="keyboard-controls accordion-content" id="keyboardControls">
+            <div class="kb-control-group">
+                <label for="keySelect">Key</label>
+                <select id="keySelect" class="kb-select" onchange="changeKeyScale()">
+                    <option value="C">C</option>
+                    <option value="C#">C#</option>
+                    <option value="D">D</option>
+                    <option value="D#">D#</option>
+                    <option value="E">E</option>
+                    <option value="F">F</option>
+                    <option value="F#">F#</option>
+                    <option value="G">G</option>
+                    <option value="G#">G#</option>
+                    <option value="A">A</option>
+                    <option value="A#">A#</option>
+                    <option value="B">B</option>
+                </select>
+            </div>
+            <div class="kb-control-group">
+                <label for="scaleSelect">Scale</label>
+                <select id="scaleSelect" class="kb-select" onchange="changeKeyScale()">
+                    <!-- JSで動的に初期化 -->
+                </select>
+            </div>
+            <div class="kb-control-group">
+                <label>Octave</label>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <button class="btn-octave" onclick="changeOctave(-1)">-</button>
+                    <span id="octaveLabel" style="min-width: 25px; text-align: center; font-weight: bold; color: var(--accent-color); font-size: 13px;">o5</span>
+                    <button class="btn-octave" onclick="changeOctave(1)">+</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="stamp-keyboard" id="keyboardTone">
+            <!-- (動的に生成されます) -->
+        </div>
+        
+        <!-- Pitch Shift Buttons (下に移動) -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+            <button class="btn-octave" style="padding:10px; font-size:16px;" onclick="shiftPitch(-1)">半音 下げる (♭)</button>
+            <button class="btn-octave" style="padding:10px; font-size:16px;" onclick="shiftPitch(1)">半音 上げる (♯)</button>
+        </div>
+
+        <div class="stamp-keyboard" id="keyboardNoise" style="display:none;">
+            <div class="stamp-btn" onclick="inputStep('H')">H (ハット)</div>
+            <div class="stamp-btn" onclick="inputStep('S')">S (スネア)</div>
+            <div class="stamp-btn action" onclick="inputStep('R')">休符</div>
+        </div>
+    </div>
+
+    <script>
+        let audioCtx = null;
+        let isPlaying = false;
+        let activeTimers = [];
+        let noiseBuffer = null;
+
+        const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        const SCALES = {
+            major: {
+                name: 'メジャー (長音階)',
+                intervals: [0, 2, 4, 5, 7, 9, 11]
+            },
+            minor: {
+                name: 'マイナー (自然短音階)',
+                intervals: [0, 2, 3, 5, 7, 8, 10]
+            },
+            majorPentatonic: {
+                name: 'メジャーペンタトニック',
+                intervals: [0, 2, 4, 7, 9]
+            },
+            minorPentatonic: {
+                name: 'マイナーペンタトニック',
+                intervals: [0, 3, 5, 7, 10]
+            },
+            yonanukiMajor: {
+                name: 'ヨナ抜き長音階 (和風)',
+                intervals: [0, 2, 4, 7, 9]
+            },
+            yonanukiMinor: {
+                name: 'ヨナ抜き短音階 (和・哀愁)',
+                intervals: [0, 2, 3, 7, 8]
+            },
+            ryukyu: {
+                name: '琉球音階 (沖縄風)',
+                intervals: [0, 4, 5, 7, 11]
+            },
+            minorBlues: {
+                name: 'マイナーブルーノート',
+                intervals: [0, 3, 5, 6, 7, 10]
+            },
+            chromatic: {
+                name: 'クロマチック (12音すべて)',
+                intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            }
+        };
+
+        function noteToFreq(noteStr) {
+            if (noteStr === 'R' || !noteStr) return 0;
+            const match = noteStr.match(/^([A-G]#?)(\d)$/i);
+            if (!match) return 0;
+            const noteName = match[1].toUpperCase();
+            const octave = parseInt(match[2]);
+            
+            const BASE_FREQ = {
+                'C': 16.35, 'C#': 17.32, 'D': 18.35, 'D#': 19.45, 'E': 20.60, 'F': 21.83,
+                'F#': 23.12, 'G': 24.50, 'G#': 25.96, 'A': 27.50, 'A#': 29.14, 'B': 30.87
+            };
+            const base = BASE_FREQ[noteName];
+            if (!base) return 0;
+            return base * Math.pow(2, octave);
+        }
+
+        const pieces = {
+            A:     ['E5', 'D5', 'C5', 'G4', 'C5', 'E5', 'D5', 'R'],
+            B:     ['G5', 'E5', 'D5', 'C5', 'G5', 'E5', 'D5', 'R'],
+            Drum1: ['H',  'H',  'S',  'H',  'H',  'H',  'S',  'R']
+        };
+
+        const pieceTypes = {
+            A: 'tone',
+            B: 'tone',
+            Drum1: 'drum'
+        };
+
+        const pieceResolutions = {
+            A: 8,
+            B: 8,
+            Drum1: 8
+        };
+
+        const macroTimeline = {
+            T1: [{ id: 'A', loop: 3 }, { id: 'B', loop: 1 }],
+            T2: [{ id: 'B', loop: 2 }],
+            T3: [],
+            T4: [{ id: 'Drum1', loop: 1 }]
+        };
+
+        let selectedStepIndex = 0;
+        let currentTargetTrackForPiece = 'T1'; 
+
+        // キー・スケール・オクターブ状態
+        let currentKey = 'C';
+        let currentScale = 'major';
+        let currentOctave = 5; 
+
+        function switchView(viewName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            
+            if(viewName === 'macro') {
+                document.getElementById('tabMacro').classList.add('active');
+                document.getElementById('viewMacro').classList.add('active');
+                renderMacroTimeline();
+            } else {
+                document.getElementById('tabMicro').classList.add('active');
+                document.getElementById('viewMicro').classList.add('active');
+                loadPieceToEdit();
+            }
+        }
+
+        /* ====================
+           ミクロビュー処理
+        ==================== */
+        function initScaleSelect() {
+            const select = document.getElementById('scaleSelect');
+            if (select.children.length > 0) return; // すでに初期化済みの場合はスキップ
+            select.innerHTML = '';
+            Object.keys(SCALES).forEach(key => {
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.innerText = SCALES[key].name;
+                select.appendChild(opt);
+            });
+            select.value = currentScale;
+            document.getElementById('keySelect').value = currentKey;
+            document.getElementById('octaveLabel').innerText = `o${currentOctave}`;
+        }
+
+        function loadPieceToEdit() {
+            initScaleSelect();
+            const pieceId = document.getElementById('editPieceSelect').value;
+            const isDrum = pieceTypes[pieceId] === 'drum';
+
+            if (isDrum) {
+                document.getElementById('keyboardTone').style.display = 'none';
+                document.getElementById('keyboardNoise').style.display = 'grid';
+                document.getElementById('keyboardControls').style.display = 'none';
+            } else {
+                document.getElementById('keyboardTone').style.display = 'grid';
+                document.getElementById('keyboardNoise').style.display = 'none';
+                document.getElementById('keyboardControls').style.display = 'flex';
+                renderKeyboard();
+            }
+            renderMicroGrid(pieceId);
+        }
+
+        function renderKeyboard() {
+            const kb = document.getElementById('keyboardTone');
+            kb.innerHTML = '';
+
+            const rootIndex = NOTE_NAMES.indexOf(currentKey);
+            const scaleObj = SCALES[currentScale];
+            
+            const scaleNotes = [];
+            scaleObj.intervals.forEach(interval => {
+                const absIndex = rootIndex + interval;
+                const noteName = NOTE_NAMES[absIndex % 12];
+                const octaveOffset = Math.floor(absIndex / 12);
+                const octave = currentOctave + octaveOffset;
+                scaleNotes.push(noteName + octave);
+            });
+
+            // オクターブを完結させるために、1オクターブ上の基音を追加
+            const upperRootOctave = currentOctave + 1;
+            scaleNotes.push(currentKey + upperRootOctave);
+
+            // ボタン生成
+            scaleNotes.forEach(noteStr => {
+                const btn = document.createElement('div');
+                btn.className = 'stamp-btn';
+                btn.innerText = noteStr;
+                btn.onclick = () => inputStep(noteStr);
+                kb.appendChild(btn);
+            });
+
+            // 休符ボタン
+            const restBtn = document.createElement('div');
+            restBtn.className = 'stamp-btn action';
+            restBtn.innerText = '休符';
+            restBtn.onclick = () => inputStep('R');
+            kb.appendChild(restBtn);
+        }
+
+        function changeKeyScale() {
+            currentKey = document.getElementById('keySelect').value;
+            currentScale = document.getElementById('scaleSelect').value;
+            renderKeyboard();
+        }
+
+        function changeOctave(dir) {
+            currentOctave += dir;
+            if (currentOctave < 1) currentOctave = 1;
+            if (currentOctave > 8) currentOctave = 8;
+            document.getElementById('octaveLabel').innerText = `o${currentOctave}`;
+            renderKeyboard();
+        }
+
+        function shiftPitch(delta) {
+            const pieceId = document.getElementById('editPieceSelect').value;
+            // ドラムピースの場合は何もしない
+            if (pieceTypes[pieceId] === 'drum') return;
+
+            const noteStr = pieces[pieceId][selectedStepIndex];
+            if (noteStr === 'R') return; // 休符は何もしない
+
+            const match = noteStr.match(/^([A-G]#?)(\d)$/i);
+            if (!match) return;
+
+            let noteName = match[1];
+            let octave = parseInt(match[2]);
+            let index = NOTE_NAMES.indexOf(noteName);
+
+            index += delta;
+
+            // オクターブ跨ぎの処理
+            if (index > 11) {
+                index = 0;
+                octave++;
+            } else if (index < 0) {
+                index = 11;
+                octave--;
+            }
+
+            // オクターブ制限 (1〜8)
+            if (octave < 1) octave = 1;
+            if (octave > 8) octave = 8;
+
+            const newNoteStr = NOTE_NAMES[index] + octave;
+            pieces[pieceId][selectedStepIndex] = newNoteStr;
+
+            previewNote(newNoteStr); // 音を鳴らす
+            renderMicroGrid(pieceId); // 画面更新
+        }
+
+        function previewNote(noteStr) {
+            initAudio();
+            if (!audioCtx) return;
+            audioCtx.resume();
+            
+            const startTime = audioCtx.currentTime;
+            const endTime = startTime + 0.15;
+            
+            if (noteStr === 'R' || !noteStr) return;
+            
+            if (noteStr === 'H' || noteStr === 'S') {
+                const source = audioCtx.createBufferSource();
+                source.buffer = noiseBuffer;
+                const filter = audioCtx.createBiquadFilter();
+                const gain = audioCtx.createGain();
+
+                if (noteStr === 'H') {
+                    filter.type = 'highpass'; filter.frequency.value = 8000;
+                    gain.gain.setValueAtTime(0.08, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.03);
+                } else {
+                    filter.type = 'bandpass'; filter.frequency.value = 1200;
+                    gain.gain.setValueAtTime(0.12, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.12);
+                }
+                source.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+                source.start(startTime); source.stop(endTime);
+            } else {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'square';
+                osc.frequency.value = noteToFreq(noteStr);
+                gain.gain.setValueAtTime(0.08, startTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, endTime - 0.005);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(startTime); osc.stop(endTime);
+            }
+        }
+
+        function renderMicroGrid(pieceId) {
+            const container = document.getElementById('microGrid');
+            container.innerHTML = '';
+            const data = pieces[pieceId];
+            const length = data.length;
+
+            // 各セレクトボックスの値をピースに合わせて更新
+            document.getElementById('stepCountSelect').value = length;
+            document.getElementById('resolutionSelect').value = pieceResolutions[pieceId] || 8;
+
+            for(let i=0; i<length; i++) {
+                const cell = document.createElement('div');
+                cell.className = `grid-cell ${i === selectedStepIndex ? 'selected' : ''}`;
+                cell.innerHTML = `<span class="step-num">${i+1}</span><span class="step-val">${data[i] || 'R'}</span>`;
+                cell.onclick = () => {
+                    selectedStepIndex = i;
+                    renderMicroGrid(pieceId);
+                    previewNote(data[i]); // セル選択時に音を鳴らす
+                };
+                container.appendChild(cell);
+            }
+            updateMMLSource();
+        }
+
+        function inputStep(val) {
+            const pieceId = document.getElementById('editPieceSelect').value;
+            pieces[pieceId][selectedStepIndex] = val;
+            previewNote(val); // 音符入力時に音を鳴らす
+            selectedStepIndex = (selectedStepIndex + 1) % pieces[pieceId].length;
+            renderMicroGrid(pieceId);
+        }
+
+        function changePieceSteps() {
+            const pieceId = document.getElementById('editPieceSelect').value;
+            const newSteps = parseInt(document.getElementById('stepCountSelect').value);
+            const currentSteps = pieces[pieceId].length;
+
+            if (newSteps > currentSteps) {
+                while (pieces[pieceId].length < newSteps) {
+                    pieces[pieceId].push('R');
+                }
+            } else if (newSteps < currentSteps) {
+                pieces[pieceId] = pieces[pieceId].slice(0, newSteps);
+            }
+
+            if (selectedStepIndex >= newSteps) {
+                selectedStepIndex = 0;
+            }
+
+            renderMicroGrid(pieceId);
+            updateMMLSource();
+        }
+
+        function changePieceResolution() {
+            const pieceId = document.getElementById('editPieceSelect').value;
+            const resolution = parseInt(document.getElementById('resolutionSelect').value);
+            pieceResolutions[pieceId] = resolution;
+
+            renderMicroGrid(pieceId);
+            updateMMLSource();
+        }
+
+        function createNewPiece() {
+            const pieceIdInput = prompt("新しいピースの名前（英数字）を入力してください：", "");
+            if (!pieceIdInput) return;
+            const id = pieceIdInput.trim();
+            if (!id) return;
+            
+            if (!/^[A-Za-z0-9_]+$/.test(id)) {
+                alert("ピース名は英数字とアンダースコア(_)のみ使用できます。");
+                return;
+            }
+
+            if (pieces[id]) {
+                alert("そのピース名は既に存在します！");
+                return;
+            }
+
+            const typeChoice = confirm("ドラム用（ノイズ音源）のピースにしますか？\n[OK] = ドラム用\n[キャンセル] = メロディ・音源・ベース用");
+            const isDrum = typeChoice;
+
+            pieces[id] = ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'R'];
+            pieceTypes[id] = isDrum ? 'drum' : 'tone';
+            pieceResolutions[id] = 8; // デフォルトは8分音符
+
+            updateEditSelect();
+            document.getElementById('editPieceSelect').value = id;
+            loadPieceToEdit();
+            renderMacroTimeline();
+        }
+
+        function updateEditSelect() {
+            const select = document.getElementById('editPieceSelect');
+            const currentVal = select.value;
+            select.innerHTML = '';
+            
+            Object.keys(pieces).forEach(id => {
+                const opt = document.createElement('option');
+                opt.value = id;
+                const displayName = pieceTypes[id] === 'drum' ? `ドラム ${id}` : `フレーズ ${id}`;
+                opt.innerText = displayName;
+                select.appendChild(opt);
+            });
+            
+            if (pieces[currentVal]) {
+                select.value = currentVal;
+            } else {
+                select.selectedIndex = 0;
+            }
+        }
+
+        /* ====================
+           マクロビュー処理
+        ==================== */
+        function selectTrack(trackId) {
+            currentTargetTrackForPiece = trackId;
+            document.querySelectorAll('.macro-track-row').forEach(r => r.classList.remove('selected'));
+            document.querySelector(`.macro-track-row[data-track="${trackId}"]`).classList.add('selected');
+        }
+
+        function renderMacroTimeline() {
+            ['T1','T2','T3','T4'].forEach(trackId => {
+                const row = document.querySelector(`.macro-track-row[data-track="${trackId}"]`);
+                const slotsContainer = row.querySelector('.macro-slots');
+                slotsContainer.innerHTML = '';
+
+                // トラックの選択状態クラスを同期
+                if (trackId === currentTargetTrackForPiece) {
+                    row.classList.add('selected');
+                } else {
+                    row.classList.remove('selected');
+                }
+
+                macroTimeline[trackId].forEach((item, index) => {
+                    const pieceEl = document.createElement('div');
+                    pieceEl.className = 'macro-piece';
+                    pieceEl.style.display = 'flex';
+                    pieceEl.style.alignItems = 'center';
+                    pieceEl.style.gap = '5px';
+                    pieceEl.innerHTML = `
+                        ${item.id} <span class="loop-count">×${item.loop}</span>
+                        <span style="color:#ff8888; font-weight:bold; cursor:pointer; padding:0 2px;" onclick="removePieceFromTrack('${trackId}', ${index}, event)">×</span>
+                    `;
+                    
+                    pieceEl.onclick = (e) => {
+                        e.stopPropagation(); // トラック行の選択イベントを発火させない
+                        item.loop = (item.loop % 4) + 1; 
+                        renderMacroTimeline();
+                    };
+                    slotsContainer.appendChild(pieceEl);
+                });
+            });
+
+            const pool = document.getElementById('piecePool');
+            pool.innerHTML = '';
+            Object.keys(pieces).forEach(pieceId => {
+                const btn = document.createElement('div');
+                btn.className = 'pool-item';
+                btn.innerText = `【${pieceId}】`;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    macroTimeline[currentTargetTrackForPiece].push({ id: pieceId, loop: 1 });
+                    renderMacroTimeline();
+                };
+                pool.appendChild(btn);
+            });
+
+            updateMMLSource();
+        }
+
+        function removePieceFromTrack(trackId, index, event) {
+            event.stopPropagation();
+            macroTimeline[trackId].splice(index, 1);
+            renderMacroTimeline();
+        }
+
+        function clearTrack(trackId, event) {
+            if (event) event.stopPropagation(); // 親のトラック選択(行タップ)イベントを完全に遮断
+            macroTimeline[trackId] = [];
+            renderMacroTimeline();
+        }
+
+        function updateMMLSource() {
+            let src = "";
+            Object.keys(pieces).forEach(id => {
+                const denom = pieceResolutions[id] || 8;
+                src += `$${id} = ${pieces[id].map(v => v+'/'+denom).join(' ')}\n`;
+            });
+            src += "\n";
+            ['T1','T2','T3','T4'].forEach(t => {
+                const line = macroTimeline[t].map(item => `$${item.id}${item.loop > 1 ? '*'+item.loop : ''}`).join(' ');
+                src += `${t}: ${line || 'R/1'}\n`;
+            });
+            document.getElementById('sourceOutput').value = src.trim();
+        }
+
+        /* ====================
+           オーディオ再生エンジン
+        ==================== */
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const bufferSize = audioCtx.sampleRate * 2;
+                noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+            }
+        }
+
+        function playTrackEngine(trackId) {
+            let currentIndex = 0;
+
+            function schedule() {
+                if (!isPlaying) return;
+
+                // リアルタイムに現在のタイムライン構成を取得して展開
+                // 各ノートの音符の長さ(denom)もあわせて取得
+                let flatNotes = [];
+                const macroList = macroTimeline[trackId];
+                macroList.forEach(item => {
+                    const atomNotes = pieces[item.id];
+                    const denom = pieceResolutions[item.id] || 8;
+                    for(let l=0; l<item.loop; l++) {
+                        atomNotes.forEach(n => {
+                            flatNotes.push({ note: n, denom: denom });
+                        });
+                    }
+                });
+
+                if (flatNotes.length === 0) {
+                    // ノートが空の場合は1ステップ分休符として待機し、ループを継続
+                    const bpm = parseFloat(document.getElementById('bpm').value) || 120;
+                    const stepDuration = (60 / bpm) / 2;
+                    const tid = setTimeout(schedule, stepDuration * 1000);
+                    activeTimers.push(tid);
+                    return;
+                }
+
+                // インデックスのオーバーフロー安全弁
+                if (currentIndex >= flatNotes.length) currentIndex = 0;
+
+                const bpm = parseFloat(document.getElementById('bpm').value) || 120;
+                const stepNote = flatNotes[currentIndex];
+                const stepDuration = (60 / bpm) * (4 / stepNote.denom);
+                const note = stepNote.note;
+                const startTime = audioCtx.currentTime;
+                const endTime = startTime + stepDuration;
+
+                if ((trackId === 'T1' || trackId === 'T2') && note !== 'R') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.value = noteToFreq(note) || 440;
+                    gain.gain.setValueAtTime(0.1, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, endTime - 0.005);
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    osc.start(startTime); osc.stop(endTime);
+                } else if (trackId === 'T3' && note !== 'R') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.value = noteToFreq(note) || 110;
+                    gain.gain.setValueAtTime(0.15, startTime);
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    osc.start(startTime); osc.stop(endTime);
+                } else if (trackId === 'T4' && (note === 'H' || note === 'S')) {
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = noiseBuffer;
+                    const filter = audioCtx.createBiquadFilter();
+                    const gain = audioCtx.createGain();
+
+                    if (note === 'H') {
+                        filter.type = 'highpass'; filter.frequency.value = 8000;
+                        gain.gain.setValueAtTime(0.1, startTime);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.03);
+                    } else {
+                        filter.type = 'bandpass'; filter.frequency.value = 1200;
+                        gain.gain.setValueAtTime(0.18, startTime);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.12);
+                    }
+                    source.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+                    source.start(startTime); source.stop(endTime);
+                }
+
+                currentIndex = (currentIndex + 1) % flatNotes.length;
+                const tid = setTimeout(schedule, stepDuration * 1000);
+                activeTimers.push(tid);
+            }
+            schedule();
+        }
+
+        document.getElementById('playBtn').addEventListener('click', () => {
+            initAudio();
+            if (isPlaying) return;
+            audioCtx.resume();
+            isPlaying = true;
+            activeTimers = [];
+
+            playTrackEngine('T1');
+            playTrackEngine('T2');
+            playTrackEngine('T3');
+            playTrackEngine('T4');
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            isPlaying = false;
+            activeTimers.forEach(id => clearTimeout(id));
+            activeTimers = [];
+        });
+
+        function toggleDrawer() {
+            document.getElementById('menuDrawer').classList.toggle('open');
+        }
+
+        function toggleBpmPresets() {
+            document.getElementById('bpmPresets').classList.toggle('open');
+        }
+
+        function toggleAccordion(id) {
+            document.getElementById(id).classList.toggle('open');
+        }
+
+        function setBpm(val) {
+            document.getElementById('bpm').value = val;
+        }
+
+        function updateBpm() {
+            // 現在のBPM入力値に基づいて処理が必要な場合はここに追加
+        }
+
+        function toggleSource() {
+            const box = document.getElementById('sourceOutput');
+            box.style.display = (box.style.display === 'block') ? 'none' : 'block';
+        }
+
+        function saveComposition() {
+            let name = document.getElementById('saveName').value.trim();
+            if (!name) {
+                const now = new Date();
+                name = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+            }
+
+            const data = {
+                id: Date.now(),
+                name: name,
+                isFavorite: false,
+                pieces: JSON.stringify(pieces),
+                macroTimeline: JSON.stringify(macroTimeline),
+                pieceTypes: JSON.stringify(pieceTypes),
+                pieceResolutions: JSON.stringify(pieceResolutions),
+                bpm: document.getElementById('bpm').value,
+                timestamp: Date.now()
+            };
+
+            let stock = JSON.parse(localStorage.getItem('8bit_comp_stock') || '[]');
+            stock.unshift(data); // 新しいものを先頭に
+
+            // 古いものを削除（お気に入り以外から）
+            pruneStock(stock);
+
+            localStorage.setItem('8bit_comp_stock', JSON.stringify(stock));
+            document.getElementById('saveName').value = '';
+            updateFavoritesList();
+        }
+
+        function pruneStock(stock) {
+            const MAX_STOCK = 20;
+            // お気に入り以外の要素を特定
+            let nonFavorites = stock.filter(item => !item.isFavorite);
+            
+            if (nonFavorites.length > MAX_STOCK) {
+                const toRemove = nonFavorites.slice(MAX_STOCK);
+                toRemove.forEach(itemToRemove => {
+                    const idx = stock.findIndex(i => i.id === itemToRemove.id);
+                    if (idx !== -1) stock.splice(idx, 1);
+                });
+            }
+        }
+
+        function loadComposition(id) {
+            const stock = JSON.parse(localStorage.getItem('8bit_comp_stock') || '[]');
+            const data = stock.find(item => item.id === id);
+            if (!data) return;
+
+            Object.assign(pieces, JSON.parse(data.pieces));
+            Object.assign(macroTimeline, JSON.parse(data.macroTimeline));
+            Object.assign(pieceTypes, JSON.parse(data.pieceTypes));
+            Object.assign(pieceResolutions, JSON.parse(data.pieceResolutions));
+            document.getElementById('bpm').value = data.bpm;
+            
+            updateEditSelect();
+            renderMacroTimeline();
+            switchView('macro');
+        }
+
+        function toggleFavorite(id, event) {
+            event.stopPropagation();
+            let stock = JSON.parse(localStorage.getItem('8bit_comp_stock') || '[]');
+            const item = stock.find(i => i.id === id);
+            if (item) {
+                item.isFavorite = !item.isFavorite;
+                localStorage.setItem('8bit_comp_stock', JSON.stringify(stock));
+                updateFavoritesList();
+            }
+        }
+
+        function deleteComposition(id, event) {
+            event.stopPropagation();
+            let stock = JSON.parse(localStorage.getItem('8bit_comp_stock') || '[]');
+            stock = stock.filter(item => item.id !== id);
+            localStorage.setItem('8bit_comp_stock', JSON.stringify(stock));
+            updateFavoritesList();
+        }
+
+        function updateFavoritesList() {
+            const list = document.getElementById('favoritesList');
+            list.innerHTML = '';
+            const stock = JSON.parse(localStorage.getItem('8bit_comp_stock') || '[]');
+            
+            stock.forEach(item => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'pool-item';
+                itemEl.style.display = 'flex';
+                itemEl.style.justifyContent = 'space-between';
+                itemEl.style.alignItems = 'center';
+                itemEl.style.marginBottom = '5px';
+                
+                itemEl.innerHTML = `
+                    <span onclick="loadComposition(${item.id})" style="flex-grow:1;">${item.name}</span>
+                    <div style="display:flex; gap:10px;">
+                        <span style="color:${item.isFavorite ? 'gold' : '#555'}; cursor:pointer;" onclick="toggleFavorite(${item.id}, event)">★</span>
+                        <span style="color:#ff8888; cursor:pointer;" onclick="deleteComposition(${item.id}, event)">×</span>
+                    </div>
+                `;
+                list.appendChild(itemEl);
+            });
+        }
+
+        // 初回ロード
+        updateEditSelect();
+        updateFavoritesList();
+        renderMacroTimeline();
+    </script>
+</body>
+</html>
